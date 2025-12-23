@@ -8,12 +8,13 @@ import requests
 class ProfileImageGenerator:
     
     def __init__(self):
-        self.width = 800
-        self.height = 600
+        self.width = 1600
+        self.height = 900
         self.bg_color = (30, 30, 40)
         self.primary_color = (100, 150, 255)
         self.text_color = (255, 255, 255)
         self.accent_color = (255, 200, 50)
+        self.divider_color = (255, 234, 0)
         
         self.rank_colors = {
             'default': (128, 128, 128),
@@ -36,13 +37,29 @@ class ProfileImageGenerator:
             'DEVELOPER': (255, 255, 255),
             'OWNER': (139, 0, 0),
         }
+        self.background_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "fon.jpg"
+        )
+        
+        self.start_y = 250
+        self.skin_x = 10
+        self.skin_y = 10
+        self.skin_size = 450
+        self.skin_spacing = 50
+        self.title_y = None
+        self.divider_offset = 100
+        self.divider_y_offset = 46
+        self.info_line_height = 50
+        self.margin_right = 50
+        self.footer_y_offset = 20
         
     def _get_font(self, size: int):
         try:
             if os.name == 'nt':
-                font_path = "C:/Windows/Fonts/arial.ttf"
+                font_path = "Unbounded-Regular.ttf"
             else:
-                font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+                font_path = "Unbounded-Regular.ttf"
             
             if os.path.exists(font_path):
                 return ImageFont.truetype(font_path, size)
@@ -50,6 +67,19 @@ class ProfileImageGenerator:
             pass
         
         return ImageFont.load_default()
+
+    def _create_canvas(self, width: int, height: int) -> Image.Image:
+        try:
+            if os.path.exists(self.background_path):
+                background = Image.open(self.background_path).convert("RGB")
+                if hasattr(Image, "Resampling"):
+                    background = background.resize((width, height), Image.Resampling.LANCZOS)
+                else:
+                    background = background.resize((width, height), Image.ANTIALIAS)
+                return background
+        except Exception as e:
+            print(f"Ошибка загрузки фонового изображения профиля: {e}")
+        return Image.new('RGB', (width, height), color=self.bg_color)
     
     def _load_skin_image(self, nickname: str) -> Optional[Image.Image]:
         try:
@@ -150,20 +180,21 @@ class ProfileImageGenerator:
             if last_login:
                 info_items.append(("Последний вход", str(last_login)))
             
-            base_height = 200 if skin_img else 150
-            info_height = len(info_items) * 35 + 50
-            total_height = base_height + info_height
+            total_height = self.height
             
-            img = Image.new('RGB', (self.width, total_height), color=self.bg_color)
+            img = self._create_canvas(self.width, total_height)
             draw = ImageDraw.Draw(img)
             
-            title_font = self._get_font(40)
-            text_font = self._get_font(18)
-            small_font = self._get_font(14)
+            title_font = self._get_font(48)
+            text_font = self._get_font(32)
+            small_font = self._get_font(12)
             
-            y_offset = 20
-            skin_size = 150
-            skin_x = 50
+            y_offset = self.start_y
+            skin_size = self.skin_size
+            skin_x = self.skin_x
+            skin_y = self.skin_y
+            if self.title_y is None:
+                self.title_y = self.start_y
             actual_skin_width = 0
             
             if skin_img:
@@ -176,9 +207,9 @@ class ProfileImageGenerator:
                 skin_img = skin_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
                 actual_skin_width = new_width
                 
-                img.paste(skin_img, (skin_x, y_offset), skin_img if skin_img.mode == 'RGBA' else None)
+                img.paste(skin_img, (skin_x, skin_y), skin_img if skin_img.mode == 'RGBA' else None)
             
-            content_start_x = skin_x + actual_skin_width + 50
+            content_start_x = skin_x + actual_skin_width + self.skin_spacing
             content_width = self.width - content_start_x - 50
             text_x = content_start_x + content_width // 2
             
@@ -197,11 +228,11 @@ class ProfileImageGenerator:
                     total_width = you_width + tube_width + nickname_width
                     start_x = text_x - total_width // 2
                     
-                    draw.text((start_x, y_offset), you_text, font=title_font,
+                    draw.text((start_x, self.title_y), you_text, font=title_font,
                              fill=(255, 0, 0), anchor="lt")
-                    draw.text((start_x + you_width, y_offset), tube_text, font=title_font,
+                    draw.text((start_x + you_width, self.title_y), tube_text, font=title_font,
                              fill=(255, 255, 255), anchor="lt")
-                    draw.text((start_x + you_width + tube_width, y_offset), f" {nickname}", font=title_font,
+                    draw.text((start_x + you_width + tube_width, self.title_y), f" {nickname}", font=title_font,
                              fill=(255, 255, 255), anchor="lt")
                 else:
                     rank_text = f"{rank_display} "
@@ -212,19 +243,19 @@ class ProfileImageGenerator:
                     total_width = rank_width + nickname_width
                     start_x = text_x - total_width // 2
                     
-                    draw.text((start_x, y_offset), rank_text, font=title_font,
+                    draw.text((start_x, self.title_y), rank_text, font=title_font,
                              fill=rank_color, anchor="lt")
-                    draw.text((start_x + rank_width, y_offset), nickname_text, font=title_font,
+                    draw.text((start_x + rank_width, self.title_y), nickname_text, font=title_font,
                              fill=rank_color, anchor="lt")
             else:
                 title = nickname
-                draw.text((text_x, y_offset), title, font=title_font,
+                draw.text((text_x, self.title_y), title, font=title_font,
                          fill=self.primary_color, anchor="mm")
             
-            y_offset += 50
+            y_offset = self.title_y + self.divider_offset
             
-            draw.line([(content_start_x, y_offset), (self.width - 50, y_offset)], fill=self.primary_color, width=2)
-            y_offset += 30
+            draw.line([(content_start_x, y_offset), (self.width - self.margin_right, y_offset)], fill=self.divider_color, width=2)
+            y_offset += self.divider_y_offset
             
             max_label_width = 0
             for label, value in info_items:
@@ -257,10 +288,10 @@ class ProfileImageGenerator:
                 draw.text((item_start_x + total_label_area, y_offset), value_str,
                          font=text_font, fill=self.accent_color, anchor="lt")
                 
-                y_offset += 35
+                y_offset += self.info_line_height
             
             footer_text = "AgeraPvP Stats Bot"
-            draw.text((self.width // 2, total_height - 20),
+            draw.text((self.width // 2, total_height - self.footer_y_offset),
                      footer_text, font=small_font,
                      fill=(150, 150, 150), anchor="mm")
             

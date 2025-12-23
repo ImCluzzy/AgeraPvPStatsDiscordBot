@@ -13,13 +13,18 @@ class PunishmentsImageGenerator:
         self.primary_color = (100, 150, 255)
         self.text_color = (255, 255, 255)
         self.accent_color = (255, 200, 50)
+        self.divider_color = (255, 234, 0)
+        self.background_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "fon.jpg"
+        )
         
     def _get_font(self, size: int):
         try:
             if os.name == 'nt':
-                font_path = "C:/Windows/Fonts/arial.ttf"
+                font_path = "Unbounded-Regular.ttf"
             else:
-                font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+                font_path = "Unbounded-Regular.ttf"
             
             if os.path.exists(font_path):
                 return ImageFont.truetype(font_path, size)
@@ -28,9 +33,22 @@ class PunishmentsImageGenerator:
         
         return ImageFont.load_default()
     
+    def _create_canvas(self, width: int, height: int) -> Image.Image:
+        try:
+            if os.path.exists(self.background_path):
+                background = Image.open(self.background_path).convert("RGB")
+                if hasattr(Image, "Resampling"):
+                    background = background.resize((width, height), Image.Resampling.LANCZOS)
+                else:
+                    background = background.resize((width, height), Image.ANTIALIAS)
+                return background
+        except Exception as e:
+            print(f"Ошибка загрузки фонового изображения punishments: {e}")
+        return Image.new('RGB', (width, height), color=self.bg_color)
+    
     def generate(self, stats_data: Dict) -> Optional[io.BytesIO]:
         try:
-            img = Image.new('RGB', (self.width, self.height), color=self.bg_color)
+            img = self._create_canvas(self.width, self.height)
             draw = ImageDraw.Draw(img)
             
             title_font = self._get_font(40)
@@ -40,9 +58,9 @@ class PunishmentsImageGenerator:
             
             title = "Статистика наказаний"
             draw.text((self.width // 2, 50), title, font=title_font,
-                     fill=self.primary_color, anchor="mm")
+                     fill=self.text_color, anchor="mm")
             
-            draw.line([(50, 100), (self.width - 50, 100)], fill=self.primary_color, width=2)
+            draw.line([(50, 100), (self.width - 50, 100)], fill=self.divider_color, width=2)
             
             y_offset = 140
             line_height = 45

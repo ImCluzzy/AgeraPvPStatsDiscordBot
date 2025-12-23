@@ -2,15 +2,21 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import os
+import asyncio
+import logging
 from dotenv import load_dotenv
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 from core.api_client import AgeraPvPAPI
 from generators import (
     StatsImageGenerator,
     ProfileImageGenerator,
-    PunishmentsImageGenerator,
-    StaffImageGenerator,
-    OnlineImageGenerator
+    PunishmentsImageGenerator
 )
 
 load_dotenv()
@@ -30,11 +36,9 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 api_client = AgeraPvPAPI(api_key=API_KEY)
-image_generator = StatsImageGenerator()
+stats_formatter = StatsImageGenerator()
 profile_generator = ProfileImageGenerator()
 punishments_generator = PunishmentsImageGenerator()
-staff_generator = StaffImageGenerator()
-online_generator = OnlineImageGenerator()
 
 
 @bot.event
@@ -47,10 +51,11 @@ async def on_ready():
     except Exception as e:
         print(f'Ошибка при синхронизации команд: {e}')
     
+    logger = logging.getLogger('bot')
     if api_client.test_connection():
-        print('Соединение с API установлено')
+        logger.info('Соединение с API установлено')
     else:
-        print('Предупреждение: не удалось подключиться к API')
+        logger.warning('Не удалось подключиться к API. Проверьте логи выше для деталей.')
 
 
 @bot.tree.command(name="stats", description="Получить статистику игрока")
@@ -59,10 +64,15 @@ async def on_ready():
     mode="Режим игры (BW для BedWars или Duels)"
 )
 async def stats_command(interaction: discord.Interaction, nickname: str, mode: str):
-    await interaction.response.defer()
+    try:
+        await interaction.response.defer()
+    except (discord.errors.NotFound, discord.errors.InteractionResponded) as e:
+        print(f"Ошибка при defer в команде stats: {e}")
+        return
     
     try:
-        stats_data = api_client.get_player_stats(nickname, mode)
+        loop = asyncio.get_event_loop()
+        stats_data = await loop.run_in_executor(None, api_client.get_player_stats, nickname, mode)
         
         if stats_data is None:
             await interaction.followup.send(
@@ -80,7 +90,7 @@ async def stats_command(interaction: discord.Interaction, nickname: str, mode: s
                 return
         
         rank = None
-        profile_data = api_client.get_player_profile(nickname)
+        profile_data = await loop.run_in_executor(None, api_client.get_player_profile, nickname)
         if profile_data and isinstance(profile_data, dict):
             ranks = profile_data.get('ranks', [])
             if ranks and isinstance(ranks, list) and len(ranks) > 0:
@@ -94,7 +104,14 @@ async def stats_command(interaction: discord.Interaction, nickname: str, mode: s
                     import re
                     rank = re.sub(r'§[0-9a-fA-Fk-oK-OrR]', '', rank)
         
-        image_bytes = image_generator.generate(nickname, mode, stats_data, rank=rank)
+        image_bytes = await loop.run_in_executor(
+            None, 
+            stats_formatter.generate, 
+            nickname, 
+            mode, 
+            stats_data, 
+            rank
+        )
         
         if image_bytes is None:
             await interaction.followup.send(
@@ -205,10 +222,15 @@ async def punishments_command(interaction: discord.Interaction):
 
 @bot.tree.command(name="staff", description="Получить список онлайн стаффа")
 async def staff_command(interaction: discord.Interaction):
-    await interaction.response.defer()
+    try:
+        await interaction.response.defer()
+    except (discord.errors.NotFound, discord.errors.InteractionResponded) as e:
+        print(f"Ошибка при defer в команде staff: {e}")
+        return
     
     try:
-        staff_data = api_client.get_staff_online()
+        loop = asyncio.get_event_loop()
+        staff_data = await loop.run_in_executor(None, api_client.get_staff_online)
         
         if staff_data is None:
             await interaction.followup.send(
@@ -224,19 +246,27 @@ async def staff_command(interaction: discord.Interaction):
                 )
                 return
         
-        image_bytes = staff_generator.generate(staff_data)
+        players = staff_data.get('players', [])
         
-        if image_bytes is None:
+        if len(players) == 0:
             await interaction.followup.send(
-                "❌ Не удалось сгенерировать изображение онлайн стаффа."
+                "👮 **Онлайн стафф**\n\nНет онлайн стаффа"
             )
             return
         
-        file = discord.File(image_bytes, filename="staff_online.png")
-        await interaction.followup.send(
-            "👮 Онлайн стафф",
-            file=file
-        )
+        import re
+        lines = [f"👮 **Онлайн стафф ({len(players)})**", ""]
+        
+        for i, player in enumerate(players, 1):
+            display_name = player.get('displayName', 'Неизвестно')
+            user_id = player.get('userId', 'N/A')
+            
+            display_name = re.sub(r'§[0-9a-fA-Fk-oK-OrR]', '', display_name)
+            
+            lines.append(f"{i}. **{display_name}** (ID: {user_id})")
+        
+        message = "\n".join(lines)
+        await interaction.followup.send(message)
         
     except Exception as e:
         print(f"Ошибка в команде staff: {e}")
@@ -247,10 +277,15 @@ async def staff_command(interaction: discord.Interaction):
 
 @bot.tree.command(name="online", description="Получить общее количество онлайн игроков")
 async def online_command(interaction: discord.Interaction):
-    await interaction.response.defer()
+    try:
+        await interaction.response.defer()
+    except (discord.errors.NotFound, discord.errors.InteractionResponded) as e:
+        print(f"Ошибка при defer в команде online: {e}")
+        return
     
     try:
-        online_data = api_client.get_total_online()
+        loop = asyncio.get_event_loop()
+        online_data = await loop.run_in_executor(None, api_client.get_total_online)
         
         if online_data is None:
             await interaction.followup.send(
@@ -266,18 +301,14 @@ async def online_command(interaction: discord.Interaction):
                 )
                 return
         
-        image_bytes = online_generator.generate(online_data)
+        online_count = 0
+        if isinstance(online_data, dict):
+            online_count = online_data.get('online') or online_data.get('count') or 0
+        elif isinstance(online_data, (int, float)):
+            online_count = online_data
         
-        if image_bytes is None:
-            await interaction.followup.send(
-                "❌ Не удалось сгенерировать изображение онлайн."
-            )
-            return
-        
-        file = discord.File(image_bytes, filename="online.png")
         await interaction.followup.send(
-            "👥 Онлайн игроков",
-            file=file
+            f"👥 Онлайн игроков: **{online_count}**"
         )
         
     except Exception as e:
