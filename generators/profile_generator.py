@@ -107,17 +107,29 @@ class ProfileImageGenerator:
         try:
             if ts_value is None:
                 return "Не указано"
-            dt = datetime.fromtimestamp(float(ts_value))
+
+            if isinstance(ts_value, str):
+                ts_value = ts_value.strip()
+                ts_float = float(ts_value)
+            else:
+                ts_float = float(ts_value)
+
+            if ts_float > 10000000000:
+                ts_float = ts_float / 1000
+
+            dt = datetime.fromtimestamp(ts_float)
             return dt.strftime("%d.%m.%Y %H:%M")
+
+        except ValueError:
+            return str(ts_value)
         except Exception:
             return str(ts_value)
 
     def generate(self, nickname: str, profile_data: Dict) -> Optional[io.BytesIO]:
         try:
-            username = profile_data.get("username", nickname)
-            display_name = self._remove_mc_formatting(
-                profile_data.get("displayName", username)
-            )
+            api_username = profile_data.get("username", nickname)
+            display_name_raw = profile_data.get("displayName", api_username)
+            display_name = self._remove_mc_formatting(display_name_raw)
 
             user_id = profile_data.get("userId")
             language = profile_data.get("language")
@@ -127,32 +139,45 @@ class ProfileImageGenerator:
 
             first_rank = None
             ranks = profile_data.get("ranks", [])
+
             if isinstance(ranks, list) and ranks:
                 r = ranks[0]
                 if isinstance(r, dict):
-                    first_rank = r.get("name") or r.get("displayName")
+                    rank_name = r.get("name")
+                    rank_display_name = r.get("displayName")
+                    first_rank = rank_name or rank_display_name
                 elif isinstance(r, str):
                     first_rank = r
+
             if first_rank:
-                first_rank = self._remove_mc_formatting(first_rank)
+                first_rank = self._remove_mc_formatting(str(first_rank))
                 rank_display = self._format_rank_name(first_rank)
             else:
                 rank_display = None
 
             info_items = []
-            if rank_display:
-                info_items.append(("Ранг", rank_display))
+
             if user_id is not None:
                 info_items.append(("ID пользователя", str(user_id)))
-            if display_name != username:
-                info_items.append(("Отображаемое имя", display_name))
+
+            if rank_display:
+                info_items.append(("Ранг", rank_display))
+            else:
+                info_items.append(("Ранг", "DEFAULT"))
+
+            info_items.append(("Отображаемое имя", api_username))
+
             if language:
                 info_items.append(("Язык", language))
+
             if current_server is not None:
                 info_items.append(("Текущий сервер", current_server))
+
             info_items.append(("Онлайн", "Да" if online else "Нет"))
+
             if last_login is not None:
-                info_items.append(("Последний вход", self._format_timestamp(last_login)))
+                formatted_login = self._format_timestamp(last_login)
+                info_items.append(("Последний вход", formatted_login))
 
             img = self._create_canvas()
             draw = ImageDraw.Draw(img)
@@ -172,15 +197,16 @@ class ProfileImageGenerator:
             content_x = self.skin_x + skin_width + self.skin_spacing
             content_center_x = content_x + (self.width - content_x - 50) // 2
 
-            if rank_display:
+            if rank_display and first_rank and first_rank.upper() != "DEFAULT":
                 color = self._get_rank_color(first_rank)
-                title = f"{rank_display} {nickname}"
+                title = f"{rank_display} {api_username}"
                 draw.text((content_center_x, self.start_y),
                           title, font=title_font,
                           fill=color, anchor="mm")
             else:
                 draw.text((content_center_x, self.start_y),
-                          nickname, font=title_font,
+                          api_username,
+                          font=title_font,
                           fill=self.primary_color, anchor="mm")
 
             y = self.start_y + self.divider_offset
@@ -199,7 +225,7 @@ class ProfileImageGenerator:
                 draw.text((start_x + max_label - draw.textlength(label_text, text_font), y),
                           label_text, font=text_font, fill=self.text_color)
                 draw.text((start_x + max_label + spacing, y),
-                          value, font=text_font, fill=self.accent_color)
+                          str(value), font=text_font, fill=self.accent_color)
                 y += self.info_line_height
 
             draw.text(
